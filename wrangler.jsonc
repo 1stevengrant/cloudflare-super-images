@@ -1,0 +1,34 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "super-image-demo",
+	"compatibility_date": "2025-09-02",
+	"compatibility_flags": ["nodejs_compat"],
+	"main": "@tanstack/react-start/server-entry",
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	// Vars / secrets are loaded from `.env` locally (Vite + Cloudflare plugin)
+	// and via `wrangler secret put` / dashboard for production:
+	//   CF_ACCOUNT_ID   — your Cloudflare Account ID
+	//   CF_ACCOUNT_HASH — public-safe hash for imagedelivery.net URLs
+	//   CF_IMAGES_TOKEN — API token with "Images: Edit" for Direct Creator Upload URLs
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "super-image-demo",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	],
+	"images": {
+		"binding": "IMAGES"
+	}
+	// Secrets (set via `wrangler secret put` for prod, or .dev.vars locally):
+	//   CF_ACCOUNT_ID  → your Cloudflare Account ID
+	//   CF_IMAGES_TOKEN → API token with "Images: Edit" permission for Direct Creator Upload URLs
+}

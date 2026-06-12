@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build output / framework caches
+dist/
+dist-ssr/
+.nitro/
+.output/
+.tanstack/
+.vinxi/
+__unconfig*
+
+# Cloudflare local state
+.wrangler/
+
+# Local secrets
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+!.env.example
+
+# OS / editor / local scratch
+.DS_Store
+*.local
+*.log
+todos.json
