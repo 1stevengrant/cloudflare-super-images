@@ -1,146 +1,164 @@
-# Super Images
+# Cloudflare Super Images
 
-A small demo app for **Cloudflare Images**, built with **TanStack Start** on
-**Cloudflare Workers** and **D1**. Upload a large product photo, optionally apply
-background removal, and serve multiple responsive product-card variants from one
-stored image.
+A Laravel package for [Cloudflare Images](https://developers.cloudflare.com/images/). Build flexible delivery URLs, mint Direct Creator Upload URLs, verify uploads, and clean up assets, all from a clean, fluent API.
 
-If you came here from the video: this is the repo you can clone to reproduce the
-Cloudflare Images flow end-to-end.
+## What it does
 
-## What this demonstrates
+* **Flexible delivery URLs**. Build `imagedelivery.net` URLs with width, height, fit, quality, and format through a fluent builder.
+* **Background removal**. Append `segment=foreground` (Cloudflare's BiRefNet model) with a single chainable call. Transparency-safe format handling is automatic.
+* **Smart crops**. Use `gravity=face` with an optional `zoom` to keep portraits framed.
+* **Presets and named variants**. Ship with thumbnail, classic, and hero presets, or point at dashboard variants.
+* **Direct Creator Upload**. Mint one-time upload URLs so the browser uploads straight to Cloudflare, bypassing your application's request body limits.
+* **Upload verification**. Poll with exponential backoff until a draft upload flips to ready.
 
-- **Direct Creator Upload**: the browser uploads straight to Cloudflare Images,
-  avoiding Worker request body limits.
-- **Background removal**: `segment=foreground` via Cloudflare Images delivery
-  URLs, with no separate ML service.
-- **Smart crops**: `gravity=face` and `zoom` keep portraits framed.
-- **Flexible variants**: URLs like `w=600,fit=cover,format=auto` create many
-  sizes/formats from one original asset.
-- **D1 metadata**: product rows store captions, prices, output format, quality,
-  and background-removal preferences.
+This package relies on **Flexible Variants** being enabled on your account (Dashboard, Images, Hosted Images, Delivery) so arbitrary transformation parameters such as `w=600,fit=cover` render.
 
-## Prerequisites
-
-- Node.js + pnpm
-- A Cloudflare account with **Cloudflare Images** enabled
-- Wrangler access to create a D1 database and deploy a Worker
-
-## Setup
-
-### 1. Install dependencies
+## Installation
 
 ```bash
-pnpm install
+composer require ghijk/cloudflare-super-images
 ```
 
-### 2. Create local environment variables
+Publish the config file:
 
 ```bash
-cp .env.example .env
+php artisan vendor:publish --tag="cloudflare-super-images-config"
 ```
 
-Fill in these values:
+## Configuration
+
+Add your Cloudflare credentials to `.env`:
+
+```dotenv
+CF_ACCOUNT_ID=your-account-id
+CF_ACCOUNT_HASH=your-public-delivery-hash
+CF_IMAGES_TOKEN=your-images-edit-token
+```
 
 | Variable | Purpose |
 | --- | --- |
 | `CF_ACCOUNT_ID` | Your Cloudflare account ID. |
-| `CF_ACCOUNT_HASH` | Public-safe Images delivery hash from Images → Hosted Images → Developer Resources. |
-| `CF_IMAGES_TOKEN` | API token with `Account → Cloudflare Images → Edit`; used to mint Direct Creator Upload URLs. |
+| `CF_ACCOUNT_HASH` | Public-safe Images delivery hash (Images, Hosted Images, Developer Resources). Safe to expose in markup. |
+| `CF_IMAGES_TOKEN` | API token with `Account, Cloudflare Images, Edit`, used to mint upload URLs and manage assets. |
 
-Do not commit `.env`; it is intentionally ignored.
+## Building delivery URLs
 
-### 3. Enable Flexible Variants
+```php
+use Ghijk\CloudflareSuperImages\Facades\CloudflareImages;
+use Ghijk\CloudflareSuperImages\Enums\ImageFit;
+use Ghijk\CloudflareSuperImages\Enums\ImageFormat;
+use Ghijk\CloudflareSuperImages\Enums\ImageGravity;
+use Ghijk\CloudflareSuperImages\Enums\ImagePreset;
 
-In the Cloudflare dashboard, go to **Images → Hosted Images → Delivery** and turn
-on **Flexible variants**. Without this, arbitrary transformation URLs such as
-`w=600,fit=cover` will not render.
+// Responsive product card
+CloudflareImages::url($imageId)
+    ->width(600)
+    ->fit(ImageFit::Cover)
+    ->format(ImageFormat::Auto)
+    ->toString();
 
-### 4. Create and configure D1
+// Background removal (format defaults to PNG to preserve transparency)
+CloudflareImages::url($imageId)
+    ->removeBackground()
+    ->width(800)
+    ->toString();
 
-```bash
-pnpm wrangler d1 create super-image-demo
+// Face-aware crop
+CloudflareImages::url($imageId)
+    ->preset(ImagePreset::Thumbnail)
+    ->gravity(ImageGravity::Face)
+    ->zoom(0.5)
+    ->toString();
+
+// A named variant configured in the dashboard
+CloudflareImages::variant($imageId, 'hero');
 ```
 
-Copy the returned `database_id` into `wrangler.jsonc` in
-`d1_databases[0].database_id`, replacing the all-zero placeholder.
+The builder casts to a string, so you can use it directly in markup or pass it anywhere a string is expected.
 
-Apply the schema locally and remotely:
+## Blade component
 
-```bash
-pnpm wrangler d1 migrations apply super-image-demo --local
-pnpm wrangler d1 migrations apply super-image-demo --remote
+```blade
+<x-cloudflare-image
+    image-id="{{ $product->image_id }}"
+    :width="600"
+    fit="cover"
+    :remove-background="$product->remove_bg"
+    alt="{{ $product->caption }}"
+    class="rounded-lg"
+/>
+
+<x-cloudflare-image image-id="{{ $product->image_id }}" preset="thumbnail" />
+
+<x-cloudflare-image image-id="{{ $product->image_id }}" variant="hero" />
 ```
 
-### 5. Run locally
+Any extra attributes (`alt`, `class`, `loading`) pass straight through to the rendered `<img>` tag.
 
-```bash
-pnpm dev
+## Direct Creator Upload
+
+Mint a one-time upload URL and hand it to the browser:
+
+```php
+use Ghijk\CloudflareSuperImages\Facades\CloudflareImages;
+
+$upload = CloudflareImages::requestDirectUpload([
+    'product_id' => $product->id,
+]);
+
+// $upload->id, $upload->uploadUrl, $upload->accountHash
+return response()->json($upload->toArray());
 ```
 
-Open <http://localhost:3000>, upload an image, then visit `/products`.
+The browser then POSTs the file directly to `$upload->uploadUrl`. Once that completes, verify the asset before persisting anything that points at it:
 
-## Deploy
-
-Set production secrets/vars and deploy:
-
-```bash
-pnpm wrangler secret put CF_ACCOUNT_ID
-pnpm wrangler secret put CF_ACCOUNT_HASH
-pnpm wrangler secret put CF_IMAGES_TOKEN
-pnpm deploy
+```php
+// Polls with exponential backoff, throws CouldNotVerifyUpload if it never readies
+CloudflareImages::assertUploaded($upload->id);
 ```
 
-`CF_ACCOUNT_HASH` is safe to expose in image URLs, but keeping it with the other
-Cloudflare values avoids accidentally hard-coding account-specific config in a
-public fork.
+## Reading and deleting assets
 
-## How it works
+```php
+$details = CloudflareImages::getImageDetails($imageId);
+
+if ($details?->isReady()) {
+    // ...
+}
+
+// Best-effort cleanup, returns a boolean rather than throwing
+CloudflareImages::delete($imageId);
+```
+
+## How upload works
 
 ```text
-  Browser                Worker (TanStack Start)         Cloudflare
- ─────────              ───────────────────────         ────────────
-   │                                                       │
-   │  1. requestDirectUpload()  ─────────►  POST /direct_upload
-   │                                                       │
-   │  ◄────  { id, uploadURL }   ◄─────────────────────────│
-   │                                                       │
-   │  2. POST file directly to uploadURL  ───────────────► │
-   │                                                       │
-   │  3. saveProduct({ imageId, … }) ──►  verify upload + INSERT INTO D1
-   │                                                       │
-   │  4. /products loader ─────────────►  SELECT FROM D1   │
-   │                                                       │
-   │  5. <img src="imagedelivery.net/HASH/IMG_ID/options">
-   │       served by Cloudflare's edge ────────────────────│
+  Browser                    Your app                        Cloudflare
+ ─────────                  ──────────                       ────────────
+   │                                                            │
+   │  1. requestDirectUpload()  ───────►  POST direct_upload    │
+   │                                                            │
+   │  ◄────  { id, uploadUrl }  ◄────────────────────────────── │
+   │                                                            │
+   │  2. POST file directly to uploadUrl  ────────────────────► │
+   │                                                            │
+   │  3. assertUploaded(id)  ───────────►  verify upload        │
+   │                                                            │
+   │  4. <x-cloudflare-image> renders imagedelivery.net URL ─── │
 ```
 
-The "remove background" checkbox does not create a new stored image. It stores a
-boolean in D1 and appends `segment=foreground` when building delivery URLs.
+## Testing
 
-## Project layout
-
-```text
-migrations/
-  0001_create_products.sql       Products table
-  0002_add_format_quality.sql    Output format/quality columns
-src/
-  lib/
-    images.ts                    Cloudflare Images URL helpers
-    server.ts                    Server functions for upload, D1, and deletes
-  routes/
-    index.tsx                    Upload page
-    products/index.tsx           Product grid
-    products/$id.tsx             Product detail + variants
-wrangler.jsonc                   Worker, D1, and Images binding config
+```bash
+composer test
 ```
 
-## Open-source safety notes
+The package ships with `Http::fake()` driven tests for the API client and pure unit tests for the URL builder.
 
-- `.env`, `.dev.vars`, `.wrangler/`, `dist/`, and `node_modules/` are ignored.
-- The checked-in `wrangler.jsonc` uses a placeholder D1 `database_id`; replace it
-  with your own before running migrations or deploying.
-- Uploaded images are configured with `requireSignedURLs=false`, so delivery URLs
-  are public. Use signed URLs for private user content.
-- If you publish an existing git history, review old commits too. A fresh public
-  repo or orphan branch is the cleanest way to avoid exposing deleted drafts.
+## Credits
+
+Ported from a TanStack Start on Cloudflare Workers demo into a reusable Laravel package.
+
+## License
+
+The MIT License (MIT). Please see [License File](LICENSE.md) for more information.

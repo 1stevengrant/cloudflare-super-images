@@ -1,27 +1,21 @@
-# Dependencies
-node_modules/
-
-# Build output / framework caches
-dist/
-dist-ssr/
-.nitro/
-.output/
-.tanstack/
-.vinxi/
-__unconfig*
-
-# Cloudflare local state
-.wrangler/
+/vendor
+/.idea
+.phpunit.result.cache
+.phpunit.cache
+build
+composer.lock
+coverage
+docs
+phpunit.xml
+phpstan.neon
+testbench.yaml
 
 # Local secrets
 .env
 .env.*
-.dev.vars
-.dev.vars.*
 !.env.example
 
-# OS / editor / local scratch
+# OS / editor
 .DS_Store
 *.local
 *.log
-todos.json

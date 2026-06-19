@@ -1,8 +1,0 @@
-minimumReleaseAge: 0
-verifyDepsBeforeRun: false
-
-allowBuilds:
-  esbuild: true
-  lightningcss: true
-  sharp: true
-  workerd: true
