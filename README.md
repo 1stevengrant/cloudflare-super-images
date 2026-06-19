@@ -95,6 +95,56 @@ The builder casts to a string, so you can use it directly in markup or pass it a
 
 Any extra attributes (`alt`, `class`, `loading`) pass straight through to the rendered `<img>` tag.
 
+## Inertia (React and Vue)
+
+The package ships React and Vue components that build delivery URLs on the client from an `imageId`, so one image can render at many sizes without a server prop per variant. They share a small TypeScript port of the URL builder.
+
+Publish the stubs into your app, where your existing Vite and TypeScript pipeline compiles them:
+
+```bash
+php artisan vendor:publish --tag="cloudflare-super-images-js"
+```
+
+This copies `buildImageUrl.ts`, `react/CloudflareImage.tsx`, and `vue/CloudflareImage.vue` into `resources/js/vendor/cloudflare-super-images`.
+
+Share your public delivery hash once so the components can read it. In `app/Http/Middleware/HandleInertiaRequests.php`:
+
+```php
+use Ghijk\CloudflareSuperImages\Facades\CloudflareImages;
+
+public function share(Request $request): array
+{
+    return [
+        ...parent::share($request),
+        'cloudflareImages' => [
+            'accountHash' => CloudflareImages::accountHash(),
+        ],
+    ];
+}
+```
+
+Then use the component. Options map onto the same names as the PHP builder, and extra attributes pass through to the `<img>`:
+
+```tsx
+import { CloudflareImage } from '@/vendor/cloudflare-super-images/react/CloudflareImage'
+
+<CloudflareImage imageId={product.image_id} preset="thumbnail" alt={product.caption} />
+<CloudflareImage imageId={product.image_id} width={600} fit="cover" removeBackground />
+```
+
+```vue
+<script setup lang="ts">
+import CloudflareImage from '@/vendor/cloudflare-super-images/vue/CloudflareImage.vue'
+</script>
+
+<template>
+    <CloudflareImage :image-id="product.image_id" preset="thumbnail" :alt="product.caption" />
+    <CloudflareImage :image-id="product.image_id" :width="600" fit="cover" remove-background />
+</template>
+```
+
+If you would rather not share the hash globally, pass it explicitly with an `accountHash` prop. To keep the URL built on the server instead, drop the components and pass `CloudflareImages::url($id)->...->toString()` as a plain string prop.
+
 ## Direct Creator Upload
 
 Mint a one-time upload URL and hand it to the browser:

@@ -33,5 +33,11 @@ class CloudflareSuperImagesServiceProvider extends PackageServiceProvider
     public function packageBooted(): void
     {
         Blade::component('cloudflare-image', CloudflareImage::class);
+
+        if ($this->app->runningInConsole()) {
+            $this->publishes([
+                __DIR__.'/../resources/js' => resource_path('js/vendor/cloudflare-super-images'),
+            ], 'cloudflare-super-images-js');
+        }
     }
 }
